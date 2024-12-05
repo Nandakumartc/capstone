@@ -12,16 +12,22 @@ from langchain.agents import Tool, initialize_agent
 from langchain.memory import ConversationBufferMemory
 from langchain.document_loaders import DataFrameLoader
 import time
+import pandas as pd
+import whisper
 import os
 from dotenv import load_dotenv
 
 load_dotenv()  # Load environment variables from .env
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
+model_whisper = whisper.load_model("base")
 
-# Assuming the previous chatbot setup is correct
-# Set up the embeddings, vector store, tools, agent, etc.
-load_dotenv()
+# Transcription function
+def transcribe_audio(audio_file):
+    result = model_whisper.transcribe(audio_file)
+    return result['text']
+
+
 def load_json_file(file_path):
     data = []
     with open(file_path, 'r') as f:
@@ -32,46 +38,46 @@ def load_json_file(file_path):
                 print(f"Skipping invalid JSON line: {line.strip()} due to error: {e}")
     return data
 
-# Load Q&A and review data
-# qa_data = load_json_file("qa_Appliances.json")
-# review_data = load_json_file("app1.json")
-# qa_cust=pd.read_csv('./qaecomm.csv')
+# # Load Q&A and review data
+qa_data = load_json_file("qa_Appliances.json")
+review_data = load_json_file("app1.json")
+qa_cust=pd.read_csv('./qaecomm.csv')
 
-# # Combine 'question' and 'answers' columns to create 'text' and handle NaN values
-# qa_cust["text"] = qa_cust["question"].fillna("") + " " + qa_cust["answers"].fillna("")
-# qa_cust = qa_cust.dropna(subset=["text"])  # Drop rows where 'text' is still NaN
+# Combine 'question' and 'answers' columns to create 'text' and handle NaN values
+qa_cust["text"] = qa_cust["question"].fillna("") + " " + qa_cust["answers"].fillna("")
+qa_cust = qa_cust.dropna(subset=["text"])  # Drop rows where 'text' is still NaN
 
-# # Load the cleaned data
-# loader = DataFrameLoader(qa_cust, page_content_column="text")
-# qacust_documents = loader.load()
+# Load the cleaned data
+loader = DataFrameLoader(qa_cust, page_content_column="text")
+qacust_documents = loader.load()
 
 
-# # Prepare documents
-# def prepare_documents_qa(data):
-#     documents = []
-#     for item in data:
-#         content = f"Question: {item['question']} Answer: {item['answer']}"
-#         metadata = {"asin": item.get("asin"), "questionType": item.get("questionType")}
-#         documents.append(Document(page_content=content, metadata=metadata))
-#     return documents
+# Prepare documents
+def prepare_documents_qa(data):
+    documents = []
+    for item in data:
+        content = f"Question: {item['question']} Answer: {item['answer']}"
+        metadata = {"asin": item.get("asin"), "questionType": item.get("questionType")}
+        documents.append(Document(page_content=content, metadata=metadata))
+    return documents
 
-# def prepare_documents_reviews(data):
-#     documents = []
-#     for item in data:
-#         content = f"Title: {item['title']} Review: {item['text']}"
-#         metadata = {"asin": item.get("asin"), "rating": item.get("rating")}
-#         documents.append(Document(page_content=content, metadata=metadata))
-#     return documents
+def prepare_documents_reviews(data):
+    documents = []
+    for item in data:
+        content = f"Title: {item['title']} Review: {item['text']}"
+        metadata = {"asin": item.get("asin"), "rating": item.get("rating")}
+        documents.append(Document(page_content=content, metadata=metadata))
+    return documents
 
-# qa_documents = prepare_documents_qa(qa_data)
-# review_documents = prepare_documents_reviews(review_data)
+qa_documents = prepare_documents_qa(qa_data)
+review_documents = prepare_documents_reviews(review_data)
 
-# # Create Vector Store
-# embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# Create Vector Store
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-# qa_vectorstore = FAISS.from_documents(qa_documents, embeddings)
-# reviews_vectorstore = FAISS.from_documents(review_documents, embeddings)
-# qacust_vectorstore = FAISS.from_documents(qacust_documents, embeddings)
+qa_vectorstore = FAISS.from_documents(qa_documents, embeddings)
+reviews_vectorstore = FAISS.from_documents(review_documents, embeddings)
+qacust_vectorstore = FAISS.from_documents(qacust_documents, embeddings)
 
 # Async Retrieval for Efficiency
 async def async_retrieve_from_vectorstore(vectorstore, query, k=3):
@@ -215,29 +221,58 @@ agent = initialize_agent(
     memory=memory
 )
 
+
+        
+# Define the chatbot UI and logic
 def create_gradio_interface():
-    with gr.Blocks() as interface:
-        gr.Markdown("# E-Commerce Chatbot Support")
+    with gr.Blocks(elem_id="main-container") as interface:
+        gr.Markdown("""
+        <div style="text-align: center;">
+            <h1 style="color: #005bb5;">🛍️ Applixa Chatbot</h1>
+            <p style="font-size: 18px; color: #555;">Your assistant for Product Details,tracking orders, returns, and more!</p>
+        </div>
+        """)
 
-        chatbot = gr.Chatbot([], elem_id="chatbot", bubble_full_width=True, avatar_images=("🤖", "👤"))
+        chatbot = gr.Chatbot([], elem_id="chatbot", bubble_full_width=True)
 
-        last_interaction = gr.State(time.time())  # Track the time of the last user interaction
-        session_active = gr.State(True)  # Track whether the session is active
+        last_interaction = gr.State(time.time())
+        session_active = gr.State(True)
+        with gr.Column(scale=6):
+          with gr.Row():
+            msg = gr.Textbox(show_label=False, placeholder="Type your question...", container=False)
+            audio_input = gr.Audio(type="filepath", label="🎤 Ask via audio")
+            track_order = gr.Button("🔍 Track Order")
+            returns = gr.Button("↩️ Returns")
+            gift_ideas = gr.Button("🎁 Gift Ideas")
+            faqs = gr.Button("❓ FAQs")
 
+        
         with gr.Row():
-            msg = gr.Textbox(show_label=False, placeholder="Ask a question about the product...", container=False)
+            clear = gr.Button("Clear")
+            restart_session = gr.Button("Restart Session", visible=False)
 
-        with gr.Row():
-            with gr.Column(scale=4):
-                clear = gr.Button("Clear")
-                restart_session = gr.Button("Restart Session", visible=False)  # Button to restart session
+        # Define functions
+        def process_text_input(user_message, history, last_interaction, session_active):
+            current_time = time.time()
+            if current_time - last_interaction > 120:
+                session_active = False
+                return history + [("Session Ended", "Your session has timed out.")], last_interaction, session_active, gr.update(visible=True)
 
-            with gr.Column(scale=6):
-                with gr.Row():
-                    track_order = gr.Button("🔍 Track Order")
-                    returns = gr.Button("↩️ Returns")
-                    gift_ideas = gr.Button("🎁 Gift Ideas")
-                    faqs = gr.Button("❓ FAQs")
+            if user_message.lower() in ["hi", "hello"]:
+                response = "🤖 Hi, How may I assist you today?"
+            else:
+                try:
+                    response = f"🤖 {agent.run(input=user_message)}"
+                except Exception:
+                    response = "🤖 I’m here to assist with product-related queries."
+
+            last_interaction = current_time
+            history.append((f"👤 {user_message}", response))
+            return history, last_interaction, session_active, gr.update(visible=False)
+
+        def process_audio_input(audio_file, history, last_interaction, session_active):
+            user_message = transcribe_audio(audio_file)
+            return process_text_input(user_message, history, last_interaction, session_active)
 
         # User message input function with conversation history
         def user_input(user_message, history, last_interaction, session_active):
@@ -250,24 +285,38 @@ def create_gradio_interface():
 
             # Check for "HI" or "Hello"
             if user_message.lower() in ["hi", "hello"]:
-                response = "Hi, How may I assist you today?"
+                response = "🤖 Hi, How may I assist you today?"
             else:
                 # Use agent to process the message
                 try:
-                    response = agent.run(input=user_message)
+                    response = f"🤖 {agent.run(input=user_message)}"
                 except Exception as e:
-                    response = "I’m here to assist with only product-related queries"
+                    response = "🤖 I’m here to assist with only product-related queries"
 
             # Update last interaction time and history
             last_interaction = current_time
-            history.append((user_message, response))
+            history.append((f"👤 {user_message}", response))
 
             return history, last_interaction, session_active, gr.update(visible=False)
 
         # Handle quick action buttons (Track Order, Returns, etc.)
         def handle_quick_action(action, history):
-            response = agent.run(input=f"!{action}")
-            return history + [("Quick Action: " + action, response)]
+            if action == "FAQs":
+                # Static FAQ response to prevent agent errors
+                response = "🤖 Here are some frequently asked questions:\n" \
+                           "1. What is your return policy?\n" \
+                           "   - You can return items within 30 days of purchase.\n" \
+                           "2. How can I track my order?\n" \
+                           "   - Use the 'Track Order' button to check your order status.\n" \
+                           "3. What payment methods do you accept?\n" \
+                           "   - We accept credit/debit cards, net banking, and UPI.\n" \
+                           "4. Can I cancel my order?\n" \
+                           "   - Yes, you can cancel your order within 24 hours of placing it."
+            else:
+                # Use agent for other actions
+                response = f"🤖 {agent.run(input=f'!{action}')}"
+            
+            return history + [(f"Quick Action: {action}", response)]
 
         # Restart session function
         def restart_session_func():
@@ -287,8 +336,16 @@ def create_gradio_interface():
         gift_ideas.click(lambda h: handle_quick_action("Gift Ideas", h), chatbot, chatbot)
         faqs.click(lambda h: handle_quick_action("FAQs", h), chatbot, chatbot)
 
-    return interface
 
+        # Bind functions
+        msg.submit(process_text_input, [msg, chatbot, last_interaction, session_active], [chatbot, last_interaction, session_active, restart_session], queue=False).then(
+            lambda: "", None, [msg]
+        )
+        audio_input.change(process_audio_input, [audio_input, chatbot, last_interaction, session_active], [chatbot, last_interaction, session_active, restart_session])
+        clear.click(lambda: [], None, chatbot)
+        restart_session.click(restart_session_func, None, [chatbot, last_interaction, session_active, restart_session])
+
+    return interface
 
 # Main execution
 if __name__ == "__main__":
