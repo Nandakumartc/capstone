@@ -2,3 +2,5 @@ python-dotenv
 langchain_community
 gradio
 faiss-cpu
+openai-whisper
+langchain-huggingface
