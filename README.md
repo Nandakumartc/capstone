@@ -1,8 +1,8 @@
 # Applixa Chatbot
 For this use case 3 datasets were used:
-qaecomm.csv - Generic Customer Support Question and Answers from Twitter Data
-qa_Appliances.json - Appliances related question and answers for Amazon
-app1.json - Applianxes related reviews and rating for Amazon
+1. qaecomm.csv - Generic Customer Support Question and Answers from Twitter Data
+2. qa_Appliances.json - Appliances related question and answers for Amazon
+3. app1.json - Applianxes related reviews and rating for Amazon
 
 # Steps To Run Code:
 1. Install requirements.txt file using command : pip install -r requirements.txt
